@@ -1,10 +1,20 @@
-# X (Twitter) Bulk Delete
+# Delete All Your Tweets on X (Twitter) — Free Browser Script
 
-A single browser-console script that deletes your **tweets, replies (mentions), and retweets** on X.
-It calls X's internal GraphQL API using your existing session — no login credentials, no third-party
-service, nothing leaves your browser.
+**Bulk-delete all your tweets, replies, mentions, and retweets on X (formerly Twitter) for free.**
+No app to install, no API key, no paid service — just one script you copy and paste into your browser's
+developer console. It runs entirely in your browser using your own logged-in session, so nothing ever
+leaves your machine.
 
 > ⚠️ Deletion is **permanent and irreversible**. Download your archive first (see below) so you keep a backup.
+
+## Features
+
+- 🗑️ **Delete all tweets, replies, and retweets** in one run
+- 🆓 **Completely free** — no subscription, no third-party service like TweetDelete or Circleboom
+- 🔒 **Private** — no login/password required, nothing leaves your browser
+- 📦 **Archive mode** to wipe your *entire* history, including tweets too old to load in the timeline
+- ⏱️ **Smart rate-limit handling** — waits out X's limits automatically and resumes
+- 🔁 **Safe to re-run** — already-deleted tweets are skipped
 
 ## How it works
 
@@ -67,6 +77,33 @@ All options live at the top of [`delete-tweets.js`](delete-tweets.js):
   a single timeline-mode pass cleans them up.
 - **Likes** are out of scope — happy to add a likes pass if needed.
 - This relies on X's current internal API. If X changes it, the query IDs or headers may need updating.
+
+## FAQ
+
+**How do I delete all my tweets at once for free?**
+Open your profile's `with_replies` page on x.com, paste [`delete-tweets.js`](delete-tweets.js) into the
+browser console, and pick timeline or archive mode. No paid tool required.
+
+**How do I delete old tweets that no longer show up?**
+X's timeline only loads recent tweets. Use **archive mode** with your downloaded `tweets.js` file to
+delete your complete history, including years-old tweets.
+
+**Can I mass-delete retweets and replies too?**
+Yes — the script removes tweets, replies (mentions), and retweets in the same run.
+
+**Is it safe / will I get banned?**
+It uses X's own internal endpoints with your existing session and respects rate limits, so it behaves like
+normal usage. It only ever touches your own account. Still, use at your own risk.
+
+**Do I need the Twitter/X API or a developer account?**
+No. The official `DELETE /2/tweets` endpoint is far more rate-limited; this script is faster and needs no
+API key.
+
+## Keywords
+
+delete all tweets · mass delete tweets · bulk delete tweets · delete tweets free · how to delete all
+tweets on X · delete old tweets · Twitter cleanup · X cleanup · unretweet all · delete retweets · delete
+replies · TweetDelete alternative · Circleboom alternative · browser console tweet deleter
 
 ## Disclaimer
 
