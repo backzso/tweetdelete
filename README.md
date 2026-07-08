@@ -40,6 +40,18 @@ It offers two modes:
 
 Stop at any time by typing `STOP_DELETE = true` in the console.
 
+## Automatic mode (userscript)
+
+Prefer a "set it and forget it" cleanup? Install [`tweetdelete.user.js`](tweetdelete.user.js) with
+[Tampermonkey](https://www.tampermonkey.net/) or Violentmonkey. Whenever you open your own profile on
+x.com, it reads your tweet count and — once it crosses a threshold (default **1000**) — asks whether to
+delete your tweets, replies, and retweets. **It never deletes silently; you always confirm first.**
+
+- Runs entirely in your browser session — no stored cookies, no API key, no server.
+- It only runs while you have x.com open (there is no unattended/headless mode by design: that would
+  require storing your login token, which is a security risk and trips X's bot detection).
+- Configure `THRESHOLD`, `ONLY_HANDLES`, and pacing at the top of the file.
+
 ## Getting your archive (for Archive mode)
 
 X → **Settings → Your account → Download an archive of your data**. It can take a few hours to prepare;
