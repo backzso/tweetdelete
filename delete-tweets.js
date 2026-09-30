@@ -10,13 +10,14 @@
  *
  *  HOW TO USE:
  *  1. Log in to x.com in your browser.
- *  2. Go to https://x.com/YOUR_USERNAME/with_replies
+ *  2. Open your profile and pick the tab you want to clean:
+ *     Posts (your tweets), Replies (your replies) or Reposts (your retweets).
  *  3. Open DevTools (Cmd+Option+J on macOS / F12 -> Console).
  *     Note: the first time you paste code, Chrome may ask you to type
  *     "allow pasting" — type it and press Enter.
  *  4. Copy the ENTIRE contents of this file, paste it into the console, Enter.
  *  5. In the dialog that appears:
- *     - "Cancel" = TIMELINE MODE: scrolls this page and deletes what is visible.
+ *     - "Cancel" = TIMELINE MODE: scrolls the current tab and deletes everything on it.
  *     - "OK"     = ARCHIVE MODE: you pick your archive's tweets.js file and
  *                  EVERY tweet in it is deleted (old tweets included, complete).
  *
@@ -43,7 +44,7 @@
   const DELETE_DELAY_MS = 400;   // minimum wait between delete calls (ms)
   const SMOOTH_PACING = false;   // false: delete at full speed, then wait for the window to reset (fastest)
                                  // true:  spread deletes evenly across the window so you never see a 429
-  const SCROLL_DELAY_MS = 1500;  // wait after each scroll for new tweets to load (ms)
+  const SCROLL_DELAY_MS = 1500;  // wait at the end of the list for X to load more tweets (ms)
   const MAX_IDLE_SCROLLS = 12;   // stop after this many scrolls with no new tweets
   const X_CLIENT_TRANSACTION_ID = ''; // fill in only if you get 404/403 (see note above)
   const X_CLIENT_UUID = '';           // fill in only if you get 404/403
@@ -211,18 +212,30 @@
   async function timelineMode() {
     const myHandle = location.pathname.split('/')[1]?.toLowerCase();
     if (!myHandle || ['home', 'search', 'explore', 'notifications', 'i'].includes(myHandle)) {
-      alert('Run this mode on your own profile page: x.com/YOUR_USERNAME/with_replies');
+      alert('Open your own profile (Posts, Replies or Reposts tab) and run the script there.');
       return;
     }
-    console.log(`👤 Account: @${myHandle} — visible tweets/replies/retweets will be deleted.`);
+    // The sidebar's Profile link tells us who is logged in. On someone else's profile the
+    // "unretweet" button would still match posts YOU reposted, so never run there.
+    const loggedIn = document.querySelector('a[data-testid="AppTabBar_Profile_Link"]')
+      ?.getAttribute('href')?.split('/')[1]?.toLowerCase();
+    if (loggedIn && loggedIn !== myHandle) {
+      alert(`This is @${myHandle}'s profile, but you are logged in as @${loggedIn}.\n` +
+            'Open your own profile and run the script there.');
+      return;
+    }
+    console.log(`👤 Account: @${myHandle} — every tweet, reply and retweet on this tab will be deleted.`);
     console.log('To stop: STOP_DELETE = true');
 
-    const processed = new Set();
+    const MAX_ATTEMPTS = 3;
+    const processed = new Set(); // ids that are done (deleted, gone, not ours, or given up on)
+    const attempts = new Map();  // id -> failed attempts, so transient errors are retried
     let idleScrolls = 0;
+    let actions = 0; // for progress logging
 
     while (idleScrolls < MAX_IDLE_SCROLLS && !window.STOP_DELETE) {
       const articles = [...document.querySelectorAll('article[data-testid="tweet"]')];
-      let actedThisPass = false;
+      let sawNew = false;
 
       for (const article of articles) {
         if (window.STOP_DELETE) break;
@@ -234,39 +247,52 @@
         if (!m) continue;
         const [, author, id] = m;
         if (processed.has(id)) continue;
-        processed.add(id);
 
-        const isMyRetweet = !!article.querySelector('[data-testid="unretweet"]');
         const isMyTweet = author.toLowerCase() === myHandle;
+        // Until the action bar renders, a retweet looks like someone else's tweet; retry next pass.
+        if (!isMyTweet && !article.querySelector('[data-testid="retweet"], [data-testid="unretweet"]')) continue;
+        processed.add(id);
+        sawNew = true;
+
+        // Your own tweet you also retweeted: deleting the tweet removes the retweet too.
+        const isMyRetweet = !isMyTweet && !!article.querySelector('[data-testid="unretweet"]');
         if (!isMyRetweet && !isMyTweet) continue; // someone else's tweet (reply context) — skip
 
         const r = isMyRetweet ? await deleteRetweet(id) : await deleteTweet(id);
-        actedThisPass = true;
+        if (r.failed) {
+          const n = (attempts.get(id) ?? 0) + 1;
+          attempts.set(id, n);
+          if (n < MAX_ATTEMPTS) {
+            processed.delete(id);
+            await sleep(adaptiveDelay);
+            continue;
+          }
+        }
         if (!handleResult(r, isMyRetweet ? 'rt' : 'tweet') && (r.fatal || r.stopped)) {
           logStats();
           return;
         }
-        // Remove the deleted item from the DOM so scrolling can advance.
-        article.closest('div[data-testid="cellInnerDiv"]')?.remove();
+        // Log the first result right away (so you know it started), then every 10 items.
+        if (++actions === 1 || actions % 10 === 0) logStats();
         await sleep(adaptiveDelay);
       }
 
-      if (actedThisPass) {
-        idleScrolls = 0;
-        logStats();
-      } else {
-        idleScrolls++;
-      }
-      window.scrollTo(0, document.body.scrollHeight);
-      await sleep(SCROLL_DELAY_MS);
+      idleScrolls = sawNew ? 0 : idleScrolls + 1;
+      // Scroll less than one screen at a time. X's timeline is virtualized and only renders
+      // tweets near the viewport, so jumping straight to the bottom skips everything in between.
+      window.scrollBy(0, Math.round(window.innerHeight * 0.8));
+      // Only the end of the list needs X to fetch more tweets; mid-list they are already loaded
+      // and just need a moment to render.
+      const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 100;
+      await sleep(atBottom ? SCROLL_DELAY_MS : 300);
     }
 
-    console.log(window.STOP_DELETE ? '⏹️ Stopped.' : '✅ Processed everything currently visible.');
+    console.log(window.STOP_DELETE ? '⏹️ Stopped.' : '✅ Processed everything on this tab.');
     logStats();
     console.log(
       '💡 Refresh the page (F5) and run the script again — the timeline only loads a limited ' +
-      'number of tweets at a time. Repeat until the profile is empty. If old tweets never appear, ' +
-      'use ARCHIVE MODE instead.'
+      'number of tweets at a time. Repeat until the tab is empty, then do the same on your other ' +
+      'tabs (Posts / Replies / Reposts). If old tweets never appear, use ARCHIVE MODE instead.'
     );
   }
 
@@ -274,7 +300,7 @@
   const useArchive = confirm(
     'Delete using ARCHIVE MODE?\n\n' +
     'OK     = Archive mode: pick your tweets.js file, ALL tweets are deleted (complete).\n' +
-    'Cancel = Timeline mode: scroll this page and delete what is visible.'
+    'Cancel = Timeline mode: delete everything on the current tab.'
   );
   if (useArchive) await archiveMode();
   else await timelineMode();

@@ -26,19 +26,23 @@ It offers two modes:
 
 | Mode | Pick | What it does |
 |---|---|---|
-| **Timeline** | Cancel | Scrolls your profile page and deletes every visible tweet / reply / retweet. Quick to start, but X only renders a limited number of tweets at a time, so refresh (F5) and re-run until the profile is empty. |
+| **Timeline** | Cancel | Deletes everything on the profile tab you're on — your tweets, replies or retweets. Quick to start, but X only renders a limited number of tweets at a time, so refresh (F5) and re-run until the tab is empty. |
 | **Archive** | OK | You select your data archive's `tweets.js` file and **every** tweet in it is deleted — oldest tweets included. This is the only way to guarantee a complete wipe, since the timeline never renders your full history. |
 
 ## Usage
 
 1. Log in to **x.com** in your browser.
-2. Go to `https://x.com/YOUR_USERNAME/with_replies`.
+2. Open your profile and pick the tab you want to clean — the script deletes whatever that tab shows:
+   - **Posts** → your tweets
+   - **Replies** → your replies
+   - **Reposts** → your retweets (unretweeted)
 3. Open the DevTools console (macOS: `Cmd+Option+J`, Windows/Linux: `F12` → Console).
    Chrome may ask you to type `allow pasting` the first time.
 4. Copy the entire contents of [`delete-tweets.js`](delete-tweets.js), paste into the console, press Enter.
 5. Choose a mode in the dialog.
 
-Stop at any time by typing `STOP_DELETE = true` in the console.
+Stop at any time by typing `STOP_DELETE = true` in the console. To clean another tab, switch to it and
+run the script again.
 
 ## Automatic mode (userscript)
 
@@ -78,7 +82,7 @@ All options live at the top of [`delete-tweets.js`](delete-tweets.js):
 |---|---|---|
 | `DELETE_DELAY_MS` | `400` | Minimum delay between delete calls. |
 | `SMOOTH_PACING` | `false` | Pace deletions to avoid `429`s (see above). |
-| `SCROLL_DELAY_MS` | `1500` | Wait after each scroll for new tweets to load (timeline mode). |
+| `SCROLL_DELAY_MS` | `1500` | Wait at the end of the list for X to load more tweets (timeline mode). |
 | `MAX_IDLE_SCROLLS` | `12` | Stop after this many scrolls with no new tweets. |
 | `X_CLIENT_TRANSACTION_ID` / `X_CLIENT_UUID` | `''` | Only needed if the API returns `404/403`; grab them from a request's headers in the Network tab. |
 
@@ -93,15 +97,16 @@ All options live at the top of [`delete-tweets.js`](delete-tweets.js):
 ## FAQ
 
 **How do I delete all my tweets at once for free?**
-Open your profile's `with_replies` page on x.com, paste [`delete-tweets.js`](delete-tweets.js) into the
-browser console, and pick timeline or archive mode. No paid tool required.
+Open your profile on x.com, paste [`delete-tweets.js`](delete-tweets.js) into the browser console, and pick
+timeline or archive mode. In timeline mode, run it once on each tab (Posts, Replies, Reposts). No paid tool required.
 
 **How do I delete old tweets that no longer show up?**
 X's timeline only loads recent tweets. Use **archive mode** with your downloaded `tweets.js` file to
 delete your complete history, including years-old tweets.
 
 **Can I mass-delete retweets and replies too?**
-Yes — the script removes tweets, replies (mentions), and retweets in the same run.
+Yes. Run timeline mode on the **Replies** tab for replies and on the **Reposts** tab for retweets, or use
+archive mode to remove all of them in one run.
 
 **Is it safe / will I get banned?**
 It uses X's own internal endpoints with your existing session and respects rate limits, so it behaves like

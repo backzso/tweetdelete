@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X (Twitter) Auto Bulk Delete
 // @namespace    https://github.com/backzso/tweetdelete
-// @version      1.0.0
+// @version      1.1.0
 // @description  Watches your tweet count on X and, once it crosses a threshold, offers to bulk-delete your tweets, replies, and retweets. Runs in your own browser session — no API key, nothing stored server-side.
 // @author       backzso
 // @match        https://x.com/*
@@ -34,7 +34,7 @@
   const CHECK_EVERY_MS = 60000;  // how often to re-check the count while on your profile
   const AUTO_CONFIRM = false;    // false: always ask before deleting (recommended)
   const DELETE_DELAY_MS = 400;   // wait between delete calls (ms)
-  const SCROLL_DELAY_MS = 1500;  // wait after each scroll for tweets to load (ms)
+  const SCROLL_DELAY_MS = 1500;  // wait at the end of the list for X to load more tweets (ms)
   const MAX_IDLE_SCROLLS = 12;   // stop after this many scrolls with no new tweets
   // Only act on these accounts (lowercase handles). Leave empty to allow any
   // profile you own that you happen to open — but pinning it is safer.
@@ -88,6 +88,10 @@
   function myHandleFromPath() {
     const h = location.pathname.split('/')[1]?.toLowerCase();
     if (!h || ['home', 'search', 'explore', 'notifications', 'i', 'messages', 'settings'].includes(h)) return null;
+    // Never act on someone else's profile: the "unretweet" button would still match posts YOU reposted.
+    const loggedIn = document.querySelector('a[data-testid="AppTabBar_Profile_Link"]')
+      ?.getAttribute('href')?.split('/')[1]?.toLowerCase();
+    if (loggedIn && loggedIn !== h) return null;
     return h;
   }
 
@@ -135,6 +139,10 @@
       if (res.ok && !body.errors) return { ok: true };
       const msg = JSON.stringify(body.errors ?? body);
       if (/not found|no status found|already|deleted/i.test(msg)) return { gone: true };
+      if (res.status === 404 || res.status === 403) {
+        console.error(`[tweetdelete] ${opName} returned ${res.status}: ${msg}`);
+        return { fatal: true };
+      }
       return { failed: true };
     }
   }
@@ -145,7 +153,9 @@
 
     window.STOP_DELETE = false;
     const stats = { deleted: 0, unretweeted: 0, gone: 0, failed: 0 };
-    const processed = new Set();
+    const MAX_ATTEMPTS = 3;
+    const processed = new Set(); // ids that are done (deleted, gone, not ours, or given up on)
+    const attempts = new Map();  // id -> failed attempts, so transient errors are retried
     let idleScrolls = 0;
 
     toast('Deleting… type STOP_DELETE = true in the console to stop.', 6000);
@@ -153,6 +163,7 @@
     while (idleScrolls < MAX_IDLE_SCROLLS && !window.STOP_DELETE) {
       const articles = [...document.querySelectorAll('article[data-testid="tweet"]')];
       let acted = false;
+      let sawNew = false;
 
       for (const article of articles) {
         if (window.STOP_DELETE) break;
@@ -162,29 +173,44 @@
         if (!m) continue;
         const [, author, id] = m;
         if (processed.has(id)) continue;
-        processed.add(id);
 
-        const isMyRetweet = !!article.querySelector('[data-testid="unretweet"]');
         const isMyTweet = author.toLowerCase() === myHandle;
+        // Until the action bar renders, a retweet looks like someone else's tweet; retry next pass.
+        if (!isMyTweet && !article.querySelector('[data-testid="retweet"], [data-testid="unretweet"]')) continue;
+        processed.add(id);
+        sawNew = true;
+
+        // Your own tweet you also retweeted: deleting the tweet removes the retweet too.
+        const isMyRetweet = !isMyTweet && !!article.querySelector('[data-testid="unretweet"]');
         if (!isMyRetweet && !isMyTweet) continue;
 
         const r = isMyRetweet
           ? await gqlPost(headers, 'iQtK4dl5hBmXewYZuEOKVw', 'DeleteRetweet', { source_tweet_id: id, dark_request: false })
           : await gqlPost(headers, 'VaenaVgh5q5ih7kvyVjgtg', 'DeleteTweet', { tweet_id: id, dark_request: false });
         acted = true;
+        if (r.failed) {
+          const n = (attempts.get(id) ?? 0) + 1;
+          attempts.set(id, n);
+          if (n < MAX_ATTEMPTS) { processed.delete(id); await sleep(DELETE_DELAY_MS); continue; }
+        }
         if (r.ok) isMyRetweet ? stats.unretweeted++ : stats.deleted++;
         else if (r.gone) stats.gone++;
         else if (r.stopped) { toast('Stopped.'); return finish(stats); }
+        else if (r.fatal) { toast('X rejected the request (403/404). See the console.', 12000); return finish(stats); }
         else stats.failed++;
 
-        article.closest('div[data-testid="cellInnerDiv"]')?.remove();
         await sleep(DELETE_DELAY_MS);
       }
 
-      if (acted) { idleScrolls = 0; toast(`Deleted ${stats.deleted}, unretweeted ${stats.unretweeted}…`, 3000); }
-      else idleScrolls++;
-      window.scrollTo(0, document.body.scrollHeight);
-      await sleep(SCROLL_DELAY_MS);
+      if (acted) toast(`Deleted ${stats.deleted}, unretweeted ${stats.unretweeted}…`, 3000);
+      idleScrolls = sawNew ? 0 : idleScrolls + 1;
+      // Scroll less than one screen at a time. X's timeline is virtualized and only renders
+      // tweets near the viewport, so jumping straight to the bottom skips everything in between.
+      window.scrollBy(0, Math.round(window.innerHeight * 0.8));
+      // Only the end of the list needs X to fetch more tweets; mid-list they are already loaded
+      // and just need a moment to render.
+      const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 100;
+      await sleep(atBottom ? SCROLL_DELAY_MS : 300);
     }
     finish(stats);
   }
@@ -199,7 +225,10 @@
   }
 
   // ============================ WATCH LOOP ============================
+  let running = false; // the interval keeps firing during a long run; don't start a second one
+
   async function tick() {
+    if (running) return;
     const myHandle = myHandleFromPath();
     if (!myHandle) return;
     if (ONLY_HANDLES.length && !ONLY_HANDLES.includes(myHandle)) return;
@@ -220,7 +249,8 @@
                 `Delete your tweets, replies and retweets now?\n\n` +
                 `This is permanent. Click Cancel to skip.`)) {
       localStorage.setItem(LS_KEY, stamp);
-      await runDelete(myHandle);
+      running = true;
+      try { await runDelete(myHandle); } finally { running = false; }
     } else {
       localStorage.setItem(LS_KEY, stamp); // remember the decline so it won't re-ask this count today
       toast('Skipped. Will ask again when the count changes.');
