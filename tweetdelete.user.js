@@ -33,7 +33,9 @@
   const THRESHOLD = 1000;        // trigger once your tweet count reaches this
   const CHECK_EVERY_MS = 60000;  // how often to re-check the count while on your profile
   const AUTO_CONFIRM = false;    // false: always ask before deleting (recommended)
-  const DELETE_DELAY_MS = 400;   // wait between delete calls (ms)
+  const DELETE_DELAY_MS = 400;   // minimum wait between delete calls (ms)
+  const SMOOTH_PACING = true;    // true:  spread deletes evenly across the rate-limit window (no 429s)
+                                 // false: delete at full speed, then wait for the window to reset
   const SCROLL_DELAY_MS = 1500;  // wait at the end of the list for X to load more tweets (ms)
   const MAX_IDLE_SCROLLS = 12;   // stop after this many scrolls with no new tweets
   // Only act on these accounts (lowercase handles). Leave empty to allow any
@@ -43,6 +45,7 @@
 
   const LS_KEY = 'tweetdelete_last_prompt';
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  let adaptiveDelay = DELETE_DELAY_MS; // updated from response headers when SMOOTH_PACING is on
   const getCookie = (name) =>
     document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'))?.[2];
 
@@ -135,6 +138,16 @@
         await sleep(waitMs);
         continue;
       }
+      // Spread remaining deletions evenly across the window so a 429 never happens.
+      const remaining = res.headers.get('x-rate-limit-remaining');
+      if (SMOOTH_PACING && remaining !== null) {
+        const rem = Number(remaining);
+        const reset = Number(res.headers.get('x-rate-limit-reset'));
+        const msLeft = reset ? reset * 1000 - Date.now() : 0;
+        adaptiveDelay = msLeft > 0 && rem >= 0
+          ? Math.min(Math.max(DELETE_DELAY_MS, msLeft / (rem + 1)), 90000)
+          : DELETE_DELAY_MS;
+      }
       const body = await res.json().catch(() => ({}));
       if (res.ok && !body.errors) return { ok: true };
       const msg = JSON.stringify(body.errors ?? body);
@@ -152,6 +165,7 @@
     if (!headers) { toast('No session (ct0 cookie missing). Log in first.'); return; }
 
     window.STOP_DELETE = false;
+    adaptiveDelay = DELETE_DELAY_MS;
     const stats = { deleted: 0, unretweeted: 0, gone: 0, failed: 0 };
     const MAX_ATTEMPTS = 3;
     const processed = new Set(); // ids that are done (deleted, gone, not ours, or given up on)
@@ -191,7 +205,7 @@
         if (r.failed) {
           const n = (attempts.get(id) ?? 0) + 1;
           attempts.set(id, n);
-          if (n < MAX_ATTEMPTS) { processed.delete(id); await sleep(DELETE_DELAY_MS); continue; }
+          if (n < MAX_ATTEMPTS) { processed.delete(id); await sleep(adaptiveDelay); continue; }
         }
         if (r.ok) isMyRetweet ? stats.unretweeted++ : stats.deleted++;
         else if (r.gone) stats.gone++;
@@ -199,7 +213,7 @@
         else if (r.fatal) { toast('X rejected the request (403/404). See the console.', 12000); return finish(stats); }
         else stats.failed++;
 
-        await sleep(DELETE_DELAY_MS);
+        await sleep(adaptiveDelay);
       }
 
       if (acted) toast(`Deleted ${stats.deleted}, unretweeted ${stats.unretweeted}…`, 3000);

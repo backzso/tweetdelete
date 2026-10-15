@@ -42,8 +42,9 @@
 (async () => {
   // ============================ SETTINGS ============================
   const DELETE_DELAY_MS = 400;   // minimum wait between delete calls (ms)
-  const SMOOTH_PACING = false;   // false: delete at full speed, then wait for the window to reset (fastest)
-                                 // true:  spread deletes evenly across the window so you never see a 429
+  const SMOOTH_PACING = true;    // true:  spread deletes evenly across the window so you never see a 429
+                                 //        (same total speed, looks less like a bot)
+                                 // false: delete at full speed, then wait for the window to reset
   const SCROLL_DELAY_MS = 1500;  // wait at the end of the list for X to load more tweets (ms)
   const MAX_IDLE_SCROLLS = 12;   // stop after this many scrolls with no new tweets
   const X_CLIENT_TRANSACTION_ID = ''; // fill in only if you get 404/403 (see note above)

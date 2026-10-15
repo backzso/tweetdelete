@@ -54,7 +54,7 @@ delete your tweets, replies, and retweets. **It never deletes silently; you alwa
 - Runs entirely in your browser session — no stored cookies, no API key, no server.
 - It only runs while you have x.com open (there is no unattended/headless mode by design: that would
   require storing your login token, which is a security risk and trips X's bot detection).
-- Configure `THRESHOLD`, `ONLY_HANDLES`, and pacing at the top of the file.
+- Configure `THRESHOLD`, `ONLY_HANDLES`, and pacing (`SMOOTH_PACING`, on by default) at the top of the file.
 
 ## Getting your archive (for Archive mode)
 
@@ -70,9 +70,11 @@ resumes on its own. Just leave the tab open.
 
 Two pacing strategies are available via the `SMOOTH_PACING` flag in the script:
 
-- **`false` (default)** — delete at full speed, then wait for the window to reset. Fastest to complete.
-- **`true`** — spread deletes evenly across each window so you never see a `429`. Same total throughput,
-  gentler on X's anti-abuse heuristics.
+- **`true` (default)** — spread deletes evenly across each window (roughly one every few seconds) so you
+  never see a `429`. Gentler on X's anti-abuse heuristics.
+- **`false`** — delete at full speed, then sit idle until the window resets.
+
+Both finish in the same total time, since X's per-window quota is the bottleneck either way.
 
 ## Configuration
 
@@ -81,7 +83,7 @@ All options live at the top of [`delete-tweets.js`](delete-tweets.js):
 | Option | Default | Purpose |
 |---|---|---|
 | `DELETE_DELAY_MS` | `400` | Minimum delay between delete calls. |
-| `SMOOTH_PACING` | `false` | Pace deletions to avoid `429`s (see above). |
+| `SMOOTH_PACING` | `true` | Pace deletions evenly to avoid `429`s (see above). |
 | `SCROLL_DELAY_MS` | `1500` | Wait at the end of the list for X to load more tweets (timeline mode). |
 | `MAX_IDLE_SCROLLS` | `12` | Stop after this many scrolls with no new tweets. |
 | `X_CLIENT_TRANSACTION_ID` / `X_CLIENT_UUID` | `''` | Only needed if the API returns `404/403`; grab them from a request's headers in the Network tab. |
