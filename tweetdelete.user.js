@@ -115,8 +115,11 @@
 
   async function gqlPost(headers, queryId, opName, variables) {
     let netErrors = 0;
+    let csrfRetries = 0;
     while (true) {
       if (window.STOP_DELETE) return { stopped: true };
+      // X rotates the ct0 cookie during long sessions; always send the current one.
+      headers['x-csrf-token'] = getCookie('ct0') ?? headers['x-csrf-token'];
       let res;
       try {
         res = await fetch(`https://x.com/i/api/graphql/${queryId}/${opName}`, {
@@ -152,6 +155,8 @@
       if (res.ok && !body.errors) return { ok: true };
       const msg = JSON.stringify(body.errors ?? body);
       if (/not found|no status found|already|deleted/i.test(msg)) return { gone: true };
+      // 353 = csrf cookie/header mismatch (the cookie just rotated). Retry with the fresh cookie.
+      if (msg.includes('"code":353') && ++csrfRetries <= 3) { await sleep(3000); continue; }
       if (res.status === 404 || res.status === 403) {
         console.error(`[tweetdelete] ${opName} returned ${res.status}: ${msg}`);
         return { fatal: true };
